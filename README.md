@@ -8,7 +8,6 @@ To predict hourly electricity load in Italy using historical demand data, solar 
 
 ## 📦 Dataset Overview
 
-- **Source**: Provided by the utility operator (assumed or simulated)
 - **Time Period**: January 1, 2016 to December 31, 2016 (hourly resolution)
 - **Features**:
   - `utc_timestamp`: Timestamp of observation
@@ -41,7 +40,6 @@ To predict hourly electricity load in Italy using historical demand data, solar 
 - **MAE (Mean Absolute Error)**
 - **RMSE (Root Mean Squared Error)**
 - Visual plots of actual vs forecast
-- Feature importance analysis for XGBoost
 
 ---
 
@@ -50,7 +48,6 @@ To predict hourly electricity load in Italy using historical demand data, solar 
 - **XGBoost outperformed** both SARIMA and Prophet models in accuracy
 - Short-term lags and calendar features are strong predictors
 - External solar generation improved Prophet’s performance slightly
-- Prophet offers transparency, XGBoost provides accuracy
 
 ---
 
@@ -67,13 +64,6 @@ To predict hourly electricity load in Italy using historical demand data, solar 
 
 Special thanks to the academic support and open data resources enabling the simulation and analysis of real-world energy forecasting problems.
 
----
-
-## 🧑‍💻 Author
-
-**Kamaksh Gurjar**  
-Energy Data Science Enthusiast | IIT Guwahati  
-[LinkedIn](https://www.linkedin.com/in/your-profile) • [Email](mailto:youremail@example.com)
 
 
 
