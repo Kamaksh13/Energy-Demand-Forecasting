@@ -1,53 +1,48 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-
-#Loading_Data
-data = pd.read_csv('TimeSeries_TotalSolarGen_and_Load_IT_2016.csv')
-data.head()
-
-import matplotlib.pyplot as plt
-data['utc_timestamp'] = pd.to_datetime(data['utc_timestamp'])
-
-#Potting_Data
-plt.figure(figsize=(14,6))
-
-plt.plot(data['utc_timestamp'], data['IT_load_new'], label='Load')
-plt.plot(data['utc_timestamp'], data['IT_solar_generation'], label='Solar Generation')
-plt.xlabel('Time')
-plt.ylabel('Value')
-plt.legend()
-plt.title('Load and Solar Generation over Time')
-plt.show()
-
-import matplotlib.pyplot as plt
-
-data['utc_timestamp'] = pd.to_datetime(data['utc_timestamp'])
-
-plt.figure(figsize=(14,6))
-
-#plt.plot(data['utc_timestamp'], data['IT_load_new'], label='Load')
-plt.plot(data['utc_timestamp'], data['IT_solar_generation'], label='Solar Generation')
-plt.xlabel('Time')
-plt.ylabel('Value')
-plt.legend()
-plt.title('Load and Solar Generation over Time')
-plt.show()
-
-#Checking_missing_values
-data.isnull().sum()
-
-#Filling_misssing_values_using_Forward_Fill
-data['IT_load_new'].fillna(method='ffill', inplace=True)
-
-
-print("Missing values after filling:")
-print(data.isnull().sum())
-
+from statsmodels.tsa.seasonal import STL
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from statsmodels.tsa.stattools import adfuller
+from prophet import Prophet
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-#Function_to _perform_ADF_test
 
+# Load the data
+df = pd.read_csv('TimeSeries_TotalSolarGen_and_Load_IT_2016.csv')
+df.head()
+
+# Convert timestamp to datetime and set as index
+df['utc_timestamp'] = pd.to_datetime(df['utc_timestamp'])
+df.set_index('utc_timestamp', inplace=True)
+
+# Plot the original time series
+plt.figure(figsize=(15, 6))
+plt.plot(df.index, df['IT_load_new'], label='Electricity Load (MW)', alpha=0.7)
+plt.plot(df.index, df['IT_solar_generation'], label='Solar Generation (MW)', alpha=0.7)
+plt.title('Italy 2016: Electricity Load vs Solar Generation')
+plt.xlabel('Time')
+plt.ylabel('Power (MW)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Check for missing values
+print("Missing values before filling:\n", df.isna().sum())
+
+# Fill missing values in electricity load using forward fill
+df['IT_load_new'].fillna(method='ffill', inplace=True)
+
+print("\nMissing values after filling:\n", df.isna().sum())
+
+print("\nSummary statistics:\n", df.describe())
+
+
+
+# Function to perform Augmented Dickey-Fuller test
 def adf_test(timeseries):
     print ('Results of Dickey-Fuller Test:')
     dftest = adfuller(timeseries, autolag='AIC')
@@ -57,104 +52,168 @@ def adf_test(timeseries):
     print (dfoutput)
 
 print("\nADF test for 'IT_load_new' after filling missing values:")
-adf_test(data['IT_load_new'])
+adf_test(df['IT_load_new'])
 
 print("\nADF test for 'IT_solar_generation':")
-adf_test(data['IT_solar_generation'])
-
-print("ADF test for 'IT_load_new':")
-adf_test(data['IT_load_new'])
-
-print("\nADF test for 'IT_solar_generation':")
-adf_test(data['IT_solar_generation'])
-
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-
-#Plot_ACF_and_PACF
-fig, (ax1, ax2) = plt.subplots(2,1, figsize=(12,8))
-plot_acf(data['IT_load_new'], lags=50, zero=False, ax=ax1)
-plot_pacf(data['IT_load_new'], lags=50, zero=False, ax=ax2)
-plt.show()
-
-from statsmodels.tsa.arima.model import ARIMA
-from sklearn.metrics import mean_squared_error
-from math import sqrt
-
-train_size = int(len(data['IT_load_new']) * 0.8)
-train, test = data['IT_load_new'][:train_size], data['IT_load_new'][train_size:]
+adf_test(df['IT_solar_generation'])
 
 
-#Fitting_ARIMA_model
-model = ARIMA(train, order=(2,0,2))
-model_fit = model.fit()
-
-predictions = model_fit.predict(start=len(train), end=len(train)+len(test)-1)
-
-rmse = sqrt(mean_squared_error(test, predictions))
-rmse
 
 
-model2 = ARIMA(train, order=(2,1,2))
-model_fit2 = model2.fit()
+# STL Decomposition
+stl = STL(df['IT_load_new'], period=24)
+result = stl.fit()
 
-predictions2 = model_fit2.predict(start=len(train), end=len(train)+len(test)-1)
+# Plotly visualization with range slider
+fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.02,
+                    subplot_titles=("Observed", "Trend", "Seasonal", "Residual"))
 
-rmse2 = sqrt(mean_squared_error(test, predictions2))
-rmse2
+fig.add_trace(go.Scatter(x=df.index, y=result.observed, name='Observed'), row=1, col=1)
+fig.add_trace(go.Scatter(x=df.index, y=result.trend, name='Trend'), row=2, col=1)
+fig.add_trace(go.Scatter(x=df.index, y=result.seasonal, name='Seasonal'), row=3, col=1)
+fig.add_trace(go.Scatter(x=df.index, y=result.resid, name='Residual'), row=4, col=1)
 
+fig.update_layout(height=800, width=1000,
+                  title_text="STL Decomposition of Electricity Load (Interactive)",
+                  xaxis4=dict(rangeslider=dict(visible=True), type="date"))
 
-model3 = ARIMA(train, order=(2,2,2))
-model_fit3 = model2.fit()
+fig.show()
 
-predictions3 = model_fit3.predict(start=len(train), end=len(train)+len(test)-1)
+# Prophet
+# Reset index for Prophet
+df_prophet = df[['IT_load_new']].reset_index().rename(columns={
+    'utc_timestamp': 'ds',
+    'IT_load_new': 'y'
+})
 
-rmse3 = sqrt(mean_squared_error(test, predictions3))
-rmse3
+# Train-test split
+train_df = df_prophet[df_prophet['ds'] < '2016-11-01']
+test_df = df_prophet[df_prophet['ds'] >= '2016-11-01']
 
+# Initialize and fit Prophet
+model = Prophet(daily_seasonality=True, weekly_seasonality=True)
+model.fit(train_df)
 
-#Plotting_actua_vs_predicted_values
-plt.figure(figsize=(14,6))
-plt.plot(data['utc_timestamp'][train_size:], test, label='Actual')
-plt.plot(data['utc_timestamp'][train_size:], predictions, label='Predicted')
-plt.xlabel('Time')
-plt.ylabel('Value')
+# Create future dataframe for test period
+future = model.make_future_dataframe(periods=len(test_df), freq='H')
+
+# Forecast
+forecast = model.predict(future)
+
+# Evaluation
+forecast_test = forecast.set_index('ds').loc[test_df['ds']]
+y_true = test_df['y'].values
+y_pred = forecast_test['yhat'].values
+
+mae = mean_absolute_error(y_true, y_pred)
+rmse = mean_squared_error(y_true, y_pred, squared=False)
+
+# Plot
+plt.figure(figsize=(14, 6))
+plt.plot(test_df['ds'], test_df['y'], label='Actual (Test)', color='black')
+plt.plot(forecast_test.index, forecast_test['yhat'], label='Forecast', color='green')
+plt.fill_between(forecast_test.index,
+                 forecast_test['yhat_lower'],
+                 forecast_test['yhat_upper'],
+                 color='lightgreen', alpha=0.4)
+plt.title(f"Prophet Forecast vs Actual (Nov–Dec 2016)\nMAE: {mae:.2f}, RMSE: {rmse:.2f}")
+plt.xlabel("Time")
+plt.ylabel("Electricity Load (MW)")
 plt.legend()
-plt.title('Actual vs Predicted Load Values')
+plt.grid(True)
+plt.tight_layout()
 plt.show()
 
-fig, (ax1, ax2) = plt.subplots(2,1, figsize=(12,8))
-plot_acf(data['IT_solar_generation'], lags=50, zero=False, ax=ax1)
-plot_pacf(data['IT_solar_generation'], lags=50, zero=False, ax=ax2)
-plt.show()
+# Prepare dataframe for Prophet
+df_prophet = df[['IT_load_new', 'IT_solar_generation']].reset_index().rename(columns={
+    'utc_timestamp': 'ds',
+    'IT_load_new': 'y',
+    'IT_solar_generation': 'solar'
+})
 
-from statsmodels.tsa.arima.model import ARIMA
-from sklearn.metrics import mean_squared_error
-from math import sqrt
+# Train-test split
+train_df = df_prophet[df_prophet['ds'] < '2016-11-01']
+test_df = df_prophet[df_prophet['ds'] >= '2016-11-01']
 
-train_size = int(len(data['IT_solar_generation']) * 0.8)
-train, test = data['IT_solar_generation'][:train_size], data['IT_solar_generation'][train_size:]
+# Initialize and add external regressor
+model = Prophet(daily_seasonality=True, weekly_seasonality=True)
+model.add_regressor('solar')
 
-model = ARIMA(train, order=(2,0,2))
-model_fit = model.fit()
+# Fit model
+model.fit(train_df)
 
-predictions = model_fit.predict(start=len(train), end=len(train)+len(test)-1)
+# Create future dataframe including future solar generation
+future = df_prophet[['ds', 'solar']]  # full year, including test period
 
-rmse = sqrt(mean_squared_error(test, predictions))
-rmse
+# Forecast
+forecast = model.predict(future)
 
-plt.figure(figsize=(14,6))
-plt.plot(data['utc_timestamp'][train_size:], test, label='Actual')
-plt.plot(data['utc_timestamp'][train_size:], predictions, label='Predicted')
-plt.xlabel('Time')
-plt.ylabel('Value')
+# Evaluation on test set
+forecast_test = forecast.set_index('ds').loc[test_df['ds']]
+y_true = test_df['y'].values
+y_pred = forecast_test['yhat'].values
+
+mae = mean_absolute_error(y_true, y_pred)
+rmse = mean_squared_error(y_true, y_pred, squared=False)
+
+# Plot
+plt.figure(figsize=(14, 6))
+plt.plot(test_df['ds'], test_df['y'], label='Actual (Test)', color='black')
+plt.plot(forecast_test.index, forecast_test['yhat'], label='Forecast (with solar)', color='green')
+plt.fill_between(forecast_test.index,
+                 forecast_test['yhat_lower'],
+                 forecast_test['yhat_upper'],
+                 color='lightgreen', alpha=0.4)
+plt.title(f"Prophet Forecast with Solar Regressor (Nov–Dec 2016)\nMAE: {mae:.2f}, RMSE: {rmse:.2f}")
+plt.xlabel("Time")
+plt.ylabel("Electricity Load (MW)")
 plt.legend()
-plt.title('Actual vs Predicted Load Values')
+plt.grid(True)
+plt.tight_layout()
 plt.show()
 
 
+#XGBOOST
 
+# Feature engineering
+df['hour'] = df.index.hour
+df['dayofweek'] = df.index.dayofweek
+df['lag1'] = df['IT_load_new'].shift(1)
+df['lag24'] = df['IT_load_new'].shift(24)
+df['solar'] = df['IT_solar_generation']
+df.dropna(inplace=True)
 
+# Train-test split
+train = df[df.index < '2016-11-01']
+test = df[df.index >= '2016-11-01']
 
+# Model inputs
+features = ['hour', 'dayofweek', 'lag1', 'lag24', 'solar']
+X_train = train[features]
+y_train = train['IT_load_new']
+X_test = test[features]
+y_test = test['IT_load_new']
 
+# Train model
+model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=6, random_state=42)
+model.fit(X_train, y_train)
 
+# Forecast
+y_pred = model.predict(X_test)
+
+# Evaluate
+mae = mean_absolute_error(y_test, y_pred)
+rmse = mean_squared_error(y_test, y_pred, squared=False)
+
+# Plot
+plt.figure(figsize=(14, 6))
+plt.plot(y_test.index, y_test.values, label='Actual (Test)', color='black')
+plt.plot(y_test.index, y_pred, label='Forecast (XGBoost)', color='orange')
+plt.title(f"XGBoost Forecast (Nov–Dec 2016)\nMAE: {mae:.2f}, RMSE: {rmse:.2f}")
+plt.xlabel("Time")
+plt.ylabel("Electricity Load (MW)")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
